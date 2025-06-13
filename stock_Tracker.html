@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Stock Tracker</title>
+</head>
+<body>
+    <h1>Stock Tracker</h1>
+    
+    <div>
+        <h2>Add Stock</h2>
+        <input type="text" id="stockSymbol" placeholder="Stock Symbol (e.g., AAPL)" maxlength="10">
+        <input type="number" id="targetPrice" placeholder="Target Price" step="0.01" min="0">
+        <button onclick="addStock()" id="addBtn">Add Stock</button>
+    </div>
+
+    <div>
+        <h2>Your Stocks</h2>
+        <button onclick="refreshAllPrices()">Refresh All</button>
+        <div id="stocksContainer">No stocks added yet</div>
+    </div>
+
+    <script>
+        let stocks = [];
+
+        async function fetchStockPrice(symbol) {
+            try {
+                // Using CORS proxy to access Yahoo Finance API
+                const proxyUrl = 'https://api.allorigins.win/raw?url=';
+                const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol.toUpperCase()}`;
+                const url = proxyUrl + encodeURIComponent(targetUrl);
+                
+                console.log('Fetching:', symbol);
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    console.error('Response not OK:', response.status);
+                    throw new Error('API Error');
+                }
+                
+                const data = await response.json();
+                console.log('API Response:', data);
+                
+                if (!data.chart || !data.chart.result || data.chart.result.length === 0) {
+                    throw new Error('No data available');
+                }
+                
+                const result = data.chart.result[0];
+                const meta = result.meta;
+                
+                if (meta && meta.regularMarketPrice) {
+                    const currentPrice = meta.regularMarketPrice;
+                    const previousClose = meta.previousClose || meta.chartPreviousClose;
+                    const change = currentPrice - previousClose;
+                    const changePercent = (change / previousClose * 100);
+                    
+                    return {
+                        success: true,
+                        price: parseFloat(currentPrice.toFixed(2)),
+                        change: parseFloat(change.toFixed(2)),
+                        changePercent: parseFloat(changePercent.toFixed(2))
+                    };
+                } else {
+                    throw new Error('Invalid symbol or missing price data');
+                }
+            } catch (error) {
+                console.error('Fetch error for', symbol, ':', error);
+                
+                // Fallback: Try alternative API approach
+                try {
+                    console.log('Trying fallback API for', symbol);
+                    const fallbackUrl = 'https://api.allorigins.win/raw?url=' + 
+                        encodeURIComponent(`https://query2.finance.yahoo.com/v10/finance/quoteSummary/${symbol.toUpperCase()}?modules=price`);
+                    
+                    const fallbackResponse = await fetch(fallbackUrl);
+                    
+                    if (fallbackResponse.ok) {
+                        const fallbackData = await fallbackResponse.json();
+                        console.log('Fallback API Response:', fallbackData);
+                        
+                        if (fallbackData && fallbackData.quoteSummary && 
+                            fallbackData.quoteSummary.result && 
+                            fallbackData.quoteSummary.result.length > 0) {
+                            
+                            const priceData = fallbackData.quoteSummary.result[0].price;
+                            
+                            if (priceData && priceData.regularMarketPrice) {
+                                const currentPrice = priceData.regularMarketPrice.raw;
+                                const previousClose = priceData.regularMarketPreviousClose.raw;
+                                const change = currentPrice - previousClose;
+                                const changePercent = (change / previousClose) * 100;
+                                
+                                return {
+                                    success: true,
+                                    price: parseFloat(currentPrice.toFixed(2)),
+                                    change: parseFloat(change.toFixed(2)),
+                                    changePercent: parseFloat(changePercent.toFixed(2))
+                                };
+                            }
+                        }
+                    }
+                } catch (fallbackError) {
+                    console.error('Fallback API also failed:', fallbackError);
+                }
+                
+                return {
+                    success: false,
+                    error: 'Unable to fetch price - CORS or API issue'
+                };
+            }
+        }
+
+        async function addStock() {
+            const symbolInput = document.getElementById('stockSymbol');
+            const targetInput = document.getElementById('targetPrice');
+            const addBtn = document.getElementById('addBtn');
+            
+            const symbol = symbolInput.value.trim().toUpperCase();
+            const targetPrice = parseFloat(targetInput.value) || null;
+
+            if (!symbol) {
+                alert('Please enter a stock symbol');
+                return;
+            }
+
+            if (stocks.find(stock => stock.symbol === symbol)) {
+                alert('Stock already exists');
+                return;
+            }
+
+            addBtn.disabled = true;
+            addBtn.textContent = 'Adding...';
+
+            const stock = {
+                symbol: symbol,
+                targetPrice: targetPrice,
+                currentPrice: null,
+                loading: true,
+                error: null
+            };
+
+            stocks.push(stock);
+            renderStocks();
+
+            const result = await fetchStockPrice(symbol);
+            const stockIndex = stocks.findIndex(s => s.symbol === symbol);
+            
+            if (stockIndex !== -1) {
+                stocks[stockIndex].loading = false;
+                if (result.success) {
+                    stocks[stockIndex].currentPrice = result.price;
+                    stocks[stockIndex].change = result.change;
+                    stocks[stockIndex].changePercent = result.changePercent;
+                } else {
+                    stocks[stockIndex].error = result.error;
+                }
+                renderStocks();
+            }
+
+            symbolInput.value = '';
+            targetInput.value = '';
+            addBtn.disabled = false;
+            addBtn.textContent = 'Add Stock';
+        }
+
+        function removeStock(symbol) {
+            if (confirm(`Remove ${symbol}?`)) {
+                stocks = stocks.filter(stock => stock.symbol !== symbol);
+                renderStocks();
+            }
+        }
+
+        function updateTargetPrice(symbol, newTarget) {
+            const stock = stocks.find(s => s.symbol === symbol);
+            if (stock) {
+                stock.targetPrice = newTarget ? parseFloat(newTarget) : null;
+            }
+        }
+
+        async function refreshAllPrices() {
+            const refreshBtn = document.querySelector('button[onclick="refreshAllPrices()"]');
+            refreshBtn.disabled = true;
+            refreshBtn.textContent = 'Refreshing...';
+
+            stocks.forEach(stock => {
+                stock.loading = true;
+                stock.error = null;
+            });
+            renderStocks();
+
+            for (let stock of stocks) {
+                const result = await fetchStockPrice(stock.symbol);
+                stock.loading = false;
+                if (result.success) {
+                    stock.currentPrice = result.price;
+                    stock.change = result.change;
+                    stock.changePercent = result.changePercent;
+                } else {
+                    stock.error = result.error;
+                }
+            }
+
+            renderStocks();
+            refreshBtn.disabled = false;
+            refreshBtn.textContent = 'Refresh All';
+        }
+
+        function getStatus(currentPrice, targetPrice) {
+            if (!targetPrice || !currentPrice) return '';
+            
+            if (currentPrice > targetPrice) {
+                return 'Above Target';
+            } else if (currentPrice < targetPrice) {
+                return 'Below Target';
+            } else {
+                return 'At Target';
+            }
+        }
+
+        function renderStocks() {
+            const container = document.getElementById('stocksContainer');
+            
+            if (stocks.length === 0) {
+                container.innerHTML = 'No stocks added yet';
+                return;
+            }
+
+            const html = `
+                <table border="1">
+                    <tr>
+                        <th>Symbol</th>
+                        <th>Current Price</th>
+                        <th>Change</th>
+                        <th>Target Price</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                    </tr>
+                    ${stocks.map(stock => `
+                        <tr>
+                            <td>${stock.symbol}</td>
+                            <td>
+                                ${stock.loading ? 'Loading...' : 
+                                  stock.error ? stock.error :
+                                  stock.currentPrice ? `$${stock.currentPrice}` : 'N/A'}
+                            </td>
+                            <td>
+                                ${stock.change !== undefined ? 
+                                    `${stock.change >= 0 ? '+' : ''}$${stock.change} (${stock.changePercent}%)` : 
+                                    ''}
+                            </td>
+                            <td>
+                                <input type="number" 
+                                       value="${stock.targetPrice || ''}" 
+                                       placeholder="Target"
+                                       step="0.01"
+                                       min="0"
+                                       onchange="updateTargetPrice('${stock.symbol}', this.value)">
+                            </td>
+                            <td>${getStatus(stock.currentPrice, stock.targetPrice)}</td>
+                            <td>
+                                <button onclick="removeStock('${stock.symbol}')">Delete</button>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </table>
+            `;
+
+            container.innerHTML = html;
+        }
+
+        // Initialize
+        renderStocks();
+    </script>
+</body>
+</html>
