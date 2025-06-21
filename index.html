@@ -45,6 +45,8 @@
                         <button id="exportBtn" class="export-btn">📁 Export Data</button>
                         <input type="file" id="importInput" accept=".json" style="display: none;">
                         <button id="importBtn" class="import-btn">📂 Import Data</button>
+                        <button id="backupBtn" class="backup-btn">💾 Backup</button>
+                        <button id="settingsBtn" class="settings-btn">⚙️ Settings</button>
                     </div>
                 </div>
                 
@@ -58,8 +60,43 @@
         </main>
 
         <footer>
-            <p>Data provided by Yahoo Finance API</p>
+            <p>Data provided by Yahoo Finance API | Stored locally on your device</p>
+            <p><small>Storage: <span id="storageUsage">Calculating...</span></small></p>
         </footer>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Settings & Storage Management</h3>
+                <button class="modal-close" onclick="app.closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-section">
+                    <h4>Storage Information</h4>
+                    <div id="storageDetails">
+                        <p>Loading storage information...</p>
+                    </div>
+                </div>
+                
+                <div class="settings-section">
+                    <h4>Data Management</h4>
+                    <div class="button-group">
+                        <button onclick="app.handleCreateBackup()" class="backup-btn">Create Backup</button>
+                        <button onclick="app.handleRestoreBackup()" class="restore-btn">Restore Backup</button>
+                        <button onclick="app.handleClearAllData()" class="danger-btn">Clear All Data</button>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h4>Device Information</h4>
+                    <div id="deviceDetails">
+                        <p>Loading device information...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Loading overlay -->

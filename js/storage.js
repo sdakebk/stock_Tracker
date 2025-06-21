@@ -6,7 +6,15 @@
 class StockStorage {
     constructor() {
         this.storageKey = 'stockTracker_data';
-        this.stocks = this.loadStocks();
+        this.stocks = [];
+        
+        // Initialize storage system first
+        if (this.initializeStorage()) {
+            // Load existing stocks only if storage is available
+            this.stocks = this.loadStocks();
+        }
+        
+        console.log(`StockStorage initialized with ${this.stocks.length} stocks`);
     }
 
     /**
@@ -15,16 +23,21 @@ class StockStorage {
      */
     loadStocks() {
         try {
-            // Note: Using in-memory storage for Claude.ai compatibility
-            // In a real environment, you would use localStorage:
-            // const data = localStorage.getItem(this.storageKey);
-            
-            if (window.stockTrackerData) {
-                return window.stockTrackerData;
+            const data = localStorage.getItem(this.storageKey);
+            if (data) {
+                const parsed = JSON.parse(data);
+                // Validate that parsed data is an array
+                if (Array.isArray(parsed)) {
+                    console.log(`Loaded ${parsed.length} stocks from localStorage`);
+                    return parsed;
+                }
             }
+            console.log('No existing stock data found, starting fresh');
             return [];
         } catch (error) {
-            console.error('Error loading stocks from storage:', error);
+            console.error('Error loading stocks from localStorage:', error);
+            // Try to recover by clearing corrupted data
+            this.clearCorruptedData();
             return [];
         }
     }
@@ -36,14 +49,61 @@ class StockStorage {
     saveStocks(stocks) {
         try {
             this.stocks = stocks;
-            // Note: Using in-memory storage for Claude.ai compatibility
-            // In a real environment, you would use localStorage:
-            // localStorage.setItem(this.storageKey, JSON.stringify(stocks));
-            
-            window.stockTrackerData = stocks;
-            console.log('Stocks saved to storage');
+            localStorage.setItem(this.storageKey, JSON.stringify(stocks));
+            console.log(`Saved ${stocks.length} stocks to localStorage`);
         } catch (error) {
-            console.error('Error saving stocks to storage:', error);
+            console.error('Error saving stocks to localStorage:', error);
+            
+            // Handle quota exceeded error
+            if (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
+                this.handleStorageQuotaExceeded();
+            }
+        }
+    }
+
+    /**
+     * Handle storage quota exceeded by cleaning old data
+     */
+    handleStorageQuotaExceeded() {
+        console.warn('LocalStorage quota exceeded, attempting to free space...');
+        
+        try {
+            // Remove old cache data if it exists
+            const keys = Object.keys(localStorage);
+            const oldKeys = keys.filter(key => 
+                key.startsWith('stockTracker_cache_') || 
+                key.startsWith('temp_') ||
+                key.includes('_old')
+            );
+            
+            oldKeys.forEach(key => localStorage.removeItem(key));
+            
+            // Try saving again with just essential data
+            const essentialStocks = this.stocks.map(stock => ({
+                id: stock.id,
+                symbol: stock.symbol,
+                targetPrice: stock.targetPrice,
+                dateAdded: stock.dateAdded
+            }));
+            
+            localStorage.setItem(this.storageKey, JSON.stringify(essentialStocks));
+            console.log('Successfully saved essential stock data after cleanup');
+            
+        } catch (retryError) {
+            console.error('Failed to save even after cleanup:', retryError);
+            alert('Storage is full. Please export your data and consider clearing browser storage.');
+        }
+    }
+
+    /**
+     * Clear corrupted data and reset storage
+     */
+    clearCorruptedData() {
+        try {
+            localStorage.removeItem(this.storageKey);
+            console.log('Cleared corrupted stock data from localStorage');
+        } catch (error) {
+            console.error('Error clearing corrupted data:', error);
         }
     }
 
@@ -251,6 +311,219 @@ class StockStorage {
     }
 
     /**
+     * Get storage usage information
+     * @returns {Object} Storage usage stats
+     */
+    getStorageInfo() {
+        try {
+            const used = new Blob([localStorage.getItem(this.storageKey) || '']).size;
+            const total = this.getStorageQuota();
+            
+            return {
+                used: used,
+                total: total,
+                available: total - used,
+                usedFormatted: this.formatBytes(used),
+                totalFormatted: this.formatBytes(total),
+                percentUsed: Math.round((used / total) * 100)
+            };
+        } catch (error) {
+            console.error('Error getting storage info:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Estimate localStorage quota (browser dependent)
+     * @returns {number} Estimated quota in bytes
+     */
+    getStorageQuota() {
+        // Most browsers have 5-10MB localStorage limit
+        // This is an estimation since actual quota detection is complex
+        return 5 * 1024 * 1024; // 5MB default assumption
+    }
+
+    /**
+     * Format bytes to human readable format
+     * @param {number} bytes - Bytes to format
+     * @returns {string} Formatted string
+     */
+    formatBytes(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    /**
+     * Check if localStorage is available and working
+     * @returns {boolean} Whether localStorage is functional
+     */
+    isStorageAvailable() {
+        try {
+            const testKey = 'stockTracker_test';
+            localStorage.setItem(testKey, 'test');
+            localStorage.removeItem(testKey);
+            return true;
+        } catch (error) {
+            console.error('LocalStorage not available:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Create backup of current data in localStorage
+     * @returns {boolean} Success status
+     */
+    createBackup() {
+        try {
+            const backupKey = `${this.storageKey}_backup_${Date.now()}`;
+            const currentData = localStorage.getItem(this.storageKey);
+            
+            if (currentData) {
+                localStorage.setItem(backupKey, currentData);
+                console.log('Backup created:', backupKey);
+                
+                // Clean old backups (keep only last 3)
+                this.cleanOldBackups();
+                return true;
+            }
+            return false;
+        } catch (error) {
+            console.error('Error creating backup:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Clean old backup files, keeping only the most recent ones
+     */
+    cleanOldBackups() {
+        try {
+            const keys = Object.keys(localStorage);
+            const backupKeys = keys
+                .filter(key => key.startsWith(`${this.storageKey}_backup_`))
+                .sort((a, b) => {
+                    const timeA = parseInt(a.split('_').pop());
+                    const timeB = parseInt(b.split('_').pop());
+                    return timeB - timeA; // Sort descending (newest first)
+                });
+
+            // Remove all but the 3 most recent backups
+            if (backupKeys.length > 3) {
+                const toDelete = backupKeys.slice(3);
+                toDelete.forEach(key => {
+                    localStorage.removeItem(key);
+                    console.log('Removed old backup:', key);
+                });
+            }
+        } catch (error) {
+            console.error('Error cleaning old backups:', error);
+        }
+    }
+
+    /**
+     * Restore from most recent backup
+     * @returns {boolean} Success status
+     */
+    restoreFromBackup() {
+        try {
+            const keys = Object.keys(localStorage);
+            const backupKeys = keys
+                .filter(key => key.startsWith(`${this.storageKey}_backup_`))
+                .sort((a, b) => {
+                    const timeA = parseInt(a.split('_').pop());
+                    const timeB = parseInt(b.split('_').pop());
+                    return timeB - timeA;
+                });
+
+            if (backupKeys.length === 0) {
+                console.log('No backups found');
+                return false;
+            }
+
+            const latestBackup = backupKeys[0];
+            const backupData = localStorage.getItem(latestBackup);
+            
+            if (backupData) {
+                localStorage.setItem(this.storageKey, backupData);
+                this.stocks = this.loadStocks();
+                console.log('Restored from backup:', latestBackup);
+                return true;
+            }
+            return false;
+        } catch (error) {
+            console.error('Error restoring from backup:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Initialize storage with device-specific setup
+     */
+    initializeStorage() {
+        console.log('Initializing localStorage for Stock Tracker...');
+        
+        // Check if localStorage is available
+        if (!this.isStorageAvailable()) {
+            console.error('LocalStorage is not available on this device');
+            alert('Warning: Data storage is not available. Your stocks will not be saved between sessions.');
+            return false;
+        }
+
+        // Create initial backup if data exists
+        const existingData = localStorage.getItem(this.storageKey);
+        if (existingData) {
+            this.createBackup();
+        }
+
+        // Log device info for debugging
+        const deviceInfo = this.getDeviceInfo();
+        console.log('Device Info:', deviceInfo);
+
+        // Log storage info
+        const storageInfo = this.getStorageInfo();
+        if (storageInfo) {
+            console.log(`Storage: ${storageInfo.usedFormatted} / ${storageInfo.totalFormatted} used (${storageInfo.percentUsed}%)`);
+        }
+
+        return true;
+    }
+
+    /**
+     * Check if localStorage is available and working
+     * @returns {boolean} Whether localStorage is functional
+     */
+    isStorageAvailable() {
+        try {
+            const testKey = 'stockTracker_test';
+            localStorage.setItem(testKey, 'test');
+            localStorage.removeItem(testKey);
+            return true;
+        } catch (error) {
+            console.error('LocalStorage not available:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Get device/browser information for storage identification
+     * @returns {Object} Device info
+     */
+    getDeviceInfo() {
+        return {
+            userAgent: navigator.userAgent,
+            platform: navigator.platform,
+            language: navigator.language,
+            cookieEnabled: navigator.cookieEnabled,
+            onLine: navigator.onLine,
+            storageAvailable: this.isStorageAvailable()
+        };
+    }
+}
+
+    /**
      * Get storage statistics
      * @returns {Object} Storage statistics
      */
@@ -265,10 +538,11 @@ class StockStorage {
                 s.lastUpdated && new Date(s.lastUpdated) > oneDayAgo
             ).length,
             oldestStock: this.stocks.length > 0 ? 
-                Math.min(...this.stocks.map(s => new Date(s.dateAdded))) : null
+                Math.min(...this.stocks.map(s => new Date(s.dateAdded))) : null,
+            storageInfo: this.getStorageInfo(),
+            deviceInfo: this.getDeviceInfo()
         };
     }
-}
 
 // Create global storage instance
 window.stockStorage = new StockStorage();

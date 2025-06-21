@@ -5,28 +5,58 @@
 
 class StockTrackerApp {
     constructor() {
-        this.storage = window.stockStorage;
-        this.api = window.stockAPI;
-        this.refreshInterval = null;
-        this.autoRefreshEnabled = false;
-        this.autoRefreshIntervalMs = 5 * 60 * 1000; // 5 minutes
+        console.log('StockTrackerApp constructor starting...');
+        
+        try {
+            this.storage = window.stockStorage;
+            this.api = window.stockAPI;
+            this.refreshInterval = null;
+            this.autoRefreshEnabled = false;
+            this.autoRefreshIntervalMs = 5 * 60 * 1000; // 5 minutes
 
-        this.init();
+            if (!this.storage) {
+                throw new Error('Storage not available');
+            }
+            if (!this.api) {
+                throw new Error('API not available');
+            }
+
+            this.init();
+        } catch (error) {
+            console.error('Error in StockTrackerApp constructor:', error);
+            throw error;
+        }
     }
 
     /**
      * Initialize the application
      */
     init() {
-        this.setupEventListeners();
-        this.renderStocks();
-        this.updateMarketStatus();
-        
-        // Auto-refresh during market hours
-        this.startAutoRefresh();
-        
-        console.log('Stock Tracker App initialized');
-        console.log('Storage stats:', this.storage.getStats());
+        try {
+            console.log('Initializing app...');
+            
+            // Check storage availability first
+            if (!this.storage || !this.storage.isStorageAvailable()) {
+                console.warn('Storage not available');
+            }
+
+            this.setupEventListeners();
+            this.renderStocks();
+            this.updateMarketStatus();
+            this.showStorageInfo();
+            
+            // Auto-refresh during market hours
+            this.startAutoRefresh();
+            
+            console.log('Stock Tracker App initialized successfully');
+            
+            if (this.storage) {
+                console.log('Storage stats:', this.storage.getStats());
+            }
+        } catch (error) {
+            console.error('Error during app initialization:', error);
+            throw error;
+        }
     }
 
     /**
@@ -64,7 +94,21 @@ class StockTrackerApp {
             this.handleImport(e);
         });
 
-        // Keyboard shortcuts
+        // Settings button
+        const settingsBtn = document.getElementById('settingsBtn');
+        if (settingsBtn) {
+            settingsBtn.addEventListener('click', () => {
+                this.openSettingsModal();
+            });
+        }
+
+        // Backup button
+        const backupBtn = document.getElementById('backupBtn');
+        if (backupBtn) {
+            backupBtn.addEventListener('click', () => {
+                this.handleCreateBackup();
+            });
+        }
         document.addEventListener('keydown', (e) => {
             if (e.ctrlKey || e.metaKey) {
                 switch (e.key) {
@@ -76,7 +120,28 @@ class StockTrackerApp {
                         e.preventDefault();
                         this.handleExport();
                         break;
+                    case 'b':
+                        e.preventDefault();
+                        this.handleCreateBackup();
+                        break;
                 }
+            }
+        });
+
+        // Handle storage events (for multiple tabs)
+        window.addEventListener('storage', (e) => {
+            if (e.key === this.storage.storageKey) {
+                console.log('Storage updated in another tab, refreshing...');
+                this.storage.stocks = this.storage.loadStocks();
+                this.renderStocks();
+                this.showMessage('Data updated from another tab', 'info');
+            }
+        });
+
+        // Handle page unload (create backup)
+        window.addEventListener('beforeunload', () => {
+            if (this.storage.getAllStocks().length > 0) {
+                this.storage.createBackup();
             }
         });
     }
@@ -516,6 +581,138 @@ class StockTrackerApp {
     }
 
     /**
+     * Handle creating a manual backup
+     */
+    handleCreateBackup() {
+        try {
+            const success = this.storage.createBackup();
+            if (success) {
+                this.showMessage('Backup created successfully!', 'success');
+            } else {
+                this.showMessage('No data to backup', 'info');
+            }
+        } catch (error) {
+            console.error('Backup error:', error);
+            this.showMessage('Failed to create backup', 'error');
+        }
+    }
+
+    /**
+     * Handle restoring from backup
+     */
+    handleRestoreBackup() {
+        if (confirm('This will replace your current data with the most recent backup. Continue?')) {
+            try {
+                const success = this.storage.restoreFromBackup();
+                if (success) {
+                    this.renderStocks();
+                    this.showMessage('Data restored from backup!', 'success');
+                } else {
+                    this.showMessage('No backup found to restore', 'error');
+                }
+            } catch (error) {
+                console.error('Restore error:', error);
+                this.showMessage('Failed to restore from backup', 'error');
+            }
+        }
+    }
+
+    /**
+     * Open settings modal
+     */
+    openSettingsModal() {
+        const modal = document.getElementById('settingsModal');
+        if (modal) {
+            modal.classList.remove('hidden');
+            this.updateSettingsModal();
+        }
+    }
+
+    /**
+     * Close modal
+     */
+    closeModal() {
+        const modal = document.getElementById('settingsModal');
+        if (modal) {
+            modal.classList.add('hidden');
+        }
+    }
+
+    /**
+     * Update settings modal content
+     */
+    updateSettingsModal() {
+        const stats = this.storage.getStats();
+        
+        // Update storage details
+        const storageDetails = document.getElementById('storageDetails');
+        if (storageDetails && stats.storageInfo) {
+            storageDetails.innerHTML = `
+                <p><strong>Used:</strong> ${stats.storageInfo.usedFormatted}</p>
+                <p><strong>Total:</strong> ${stats.storageInfo.totalFormatted}</p>
+                <p><strong>Usage:</strong> ${stats.storageInfo.percentUsed}%</p>
+                <p><strong>Stocks:</strong> ${stats.totalStocks}</p>
+                <p><strong>With Targets:</strong> ${stats.stocksWithTargets}</p>
+            `;
+        }
+
+        // Update device details
+        const deviceDetails = document.getElementById('deviceDetails');
+        if (deviceDetails && stats.deviceInfo) {
+            deviceDetails.innerHTML = `
+                <p><strong>Platform:</strong> ${stats.deviceInfo.platform}</p>
+                <p><strong>Language:</strong> ${stats.deviceInfo.language}</p>
+                <p><strong>Storage Available:</strong> ${stats.deviceInfo.storageAvailable ? 'Yes' : 'No'}</p>
+                <p><strong>Online:</strong> ${stats.deviceInfo.onLine ? 'Yes' : 'No'}</p>
+            `;
+        }
+    }
+
+    /**
+     * Clear all data with confirmation
+     */
+    handleClearAllData() {
+        const confirmMessage = 'This will permanently delete ALL your stocks and data. This cannot be undone.\n\nType "DELETE ALL" to confirm:';
+        const userInput = prompt(confirmMessage);
+        
+        if (userInput === 'DELETE ALL') {
+            try {
+                // Create one final backup before clearing
+                this.storage.createBackup();
+                
+                // Clear all data
+                const success = this.storage.clearAllStocks();
+                if (success) {
+                    this.renderStocks();
+                    this.showStorageInfo(); // Update storage display
+                    this.showMessage('All data cleared successfully', 'success');
+                } else {
+                    this.showMessage('Failed to clear data', 'error');
+                }
+            } catch (error) {
+                console.error('Clear data error:', error);
+                this.showMessage('Failed to clear data', 'error');
+            }
+        } else if (userInput !== null) {
+            this.showMessage('Data clear cancelled - incorrect confirmation', 'info');
+        }
+    }
+
+    /**
+     * Set form disabled state
+     * @param {boolean} disabled - Whether to disable the form
+     */
+    setFormDisabled(disabled) {
+        const symbolInput = document.getElementById('stockSymbol');
+        const targetInput = document.getElementById('targetPrice');
+        const addBtn = document.getElementById('addBtn');
+
+        symbolInput.disabled = disabled;
+        targetInput.disabled = disabled;
+        addBtn.disabled = disabled;
+    }
+
+    /**
      * Stop auto-refresh
      */
     stopAutoRefresh() {
@@ -592,5 +789,26 @@ class StockTrackerApp {
 
 // Initialize app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    window.app = new StockTrackerApp();
+    console.log('DOM loaded, checking dependencies...');
+    
+    // Check if dependencies are available
+    if (typeof window.stockStorage === 'undefined') {
+        console.error('stockStorage not available');
+        return;
+    }
+    
+    if (typeof window.stockAPI === 'undefined') {
+        console.error('stockAPI not available');
+        return;
+    }
+    
+    console.log('Dependencies loaded, initializing app...');
+    
+    try {
+        window.app = new StockTrackerApp();
+        console.log('App initialized successfully');
+    } catch (error) {
+        console.error('Error initializing app:', error);
+        alert('Application failed to load. Error: ' + error.message);
+    }
 });
