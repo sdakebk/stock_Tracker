@@ -1,0 +1,369 @@
+/* Reset and Base Styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background: #fff;
+    min-height: 100vh;
+    color: #111;
+    line-height: 1.6;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* Header */
+header {
+    text-align: center;
+    margin-bottom: 2rem;
+    color: #111;
+}
+
+header h1 {
+    font-size: 2.5rem;
+    margin-bottom: 0.5rem;
+    text-shadow: none;
+}
+
+header p {
+    font-size: 1.1rem;
+    opacity: 1;
+}
+
+/* Main Content */
+main {
+    display: grid;
+    gap: 2rem;
+}
+
+section {
+    background: #fff;
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: none;
+    backdrop-filter: none;
+}
+
+.add-stock-section h2,
+.stocks-section h2 {
+    margin-bottom: 1rem;
+    color: #111;
+    font-size: 1.5rem;
+}
+
+/* Form Styles */
+.stock-form {
+    width: 100%;
+}
+
+.form-group {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.form-group input {
+    flex: 1;
+    min-width: 200px;
+    padding: 12px 16px;
+    border: 2px solid #bbb;
+    border-radius: 8px;
+    font-size: 1rem;
+    transition: all 0.3s ease;
+    background: #fff;
+    color: #111;
+}
+
+.form-group input:focus {
+    outline: none;
+    border-color: #111;
+    box-shadow: none;
+}
+
+.form-group button {
+    padding: 12px 24px;
+    background: #111;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    white-space: nowrap;
+}
+
+.form-group button:hover {
+    transform: translateY(-2px);
+    box-shadow: none;
+    background: #333;
+}
+
+.form-group button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+    background: #bbb;
+    color: #fff;
+}
+
+/* Section Header */
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.controls {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.controls button {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: #111;
+    color: #fff;
+}
+
+.refresh-btn,
+.export-btn,
+.import-btn {
+    background: #111;
+    color: #fff;
+}
+
+.refresh-btn:hover,
+.export-btn:hover,
+.import-btn:hover {
+    background: #333;
+}
+
+/* Empty State */
+.empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: #888;
+}
+
+.empty-state p:first-child {
+    font-size: 1.2rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+/* Stock Table */
+.stocks-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+    background: #fff;
+}
+
+.stocks-table th,
+.stocks-table td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid #bbb;
+}
+
+.stocks-table th {
+    background: #f5f5f5;
+    font-weight: 600;
+    color: #111;
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stocks-table tr:hover {
+    background: #f5f5f5;
+}
+
+.stock-symbol {
+    font-weight: 600;
+    font-size: 1.1rem;
+    color: #111;
+}
+
+.stock-price {
+    font-weight: 600;
+    font-size: 1.1rem;
+}
+
+.stock-change {
+    font-weight: 600;
+}
+
+.positive {
+    color: #111;
+}
+
+.negative {
+    color: #111;
+}
+
+.neutral {
+    color: #888;
+}
+
+.target-input {
+    width: 100px;
+    padding: 6px 8px;
+    border: 1px solid #bbb;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    background: #fff;
+    color: #111;
+}
+
+.target-input:focus {
+    outline: none;
+    border-color: #111;
+}
+
+.status-badge {
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    background: #eee;
+    color: #111;
+}
+
+.status-above,
+.status-below,
+.status-at {
+    background: #eee;
+    color: #111;
+}
+
+.delete-btn {
+    background: #111;
+    color: #fff;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.delete-btn:hover {
+    background: #333;
+}
+
+/* Loading States */
+.loading {
+    color: #888;
+    font-style: italic;
+}
+
+.error {
+    color: #111;
+    font-size: 0.9rem;
+}
+
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.1);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.loading-overlay.hidden {
+    display: none;
+}
+
+.loading-spinner {
+    width: 50px;
+    height: 50px;
+    border: 5px solid #eee;
+    border-top: 5px solid #111;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Footer */
+footer {
+    text-align: center;
+    margin-top: 2rem;
+    color: #888;
+    font-size: 0.9rem;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .container {
+        padding: 10px;
+    }
+    
+    header h1 {
+        font-size: 2rem;
+    }
+    
+    .form-group {
+        flex-direction: column;
+    }
+    
+    .form-group input,
+    .form-group button {
+        min-width: auto;
+    }
+    
+    .section-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .stocks-table {
+        font-size: 0.9rem;
+    }
+    
+    .stocks-table th,
+    .stocks-table td {
+        padding: 8px;
+    }
+}
+
+@media (max-width: 480px) {
+    .stocks-table {
+        font-size: 0.8rem;
+    }
+    
+    .target-input {
+        width: 80px;
+    }
+    
+    .controls {
+        width: 100%;
+        justify-content: center;
+    }
+}

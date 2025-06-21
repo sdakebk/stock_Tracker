@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Tracker Pro</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📈 Stock Tracker Pro</h1>
+            <p>Track your favorite stocks and set target prices</p>
+        </header>
+
+        <main>
+            <section class="add-stock-section">
+                <h2>Add New Stock</h2>
+                <form id="addStockForm" class="stock-form">
+                    <div class="form-group">
+                        <input 
+                            type="text" 
+                            id="stockSymbol" 
+                            placeholder="Stock Symbol (e.g., AAPL)" 
+                            maxlength="10"
+                            required
+                        >
+                        <input 
+                            type="number" 
+                            id="targetPrice" 
+                            placeholder="Target Price (optional)" 
+                            step="0.01" 
+                            min="0"
+                        >
+                        <button type="submit" id="addBtn">Add Stock</button>
+                    </div>
+                </form>
+            </section>
+
+            <section class="stocks-section">
+                <div class="section-header">
+                    <h2>Your Portfolio</h2>
+                    <div class="controls">
+                        <button id="refreshAllBtn" class="refresh-btn">🔄 Refresh All</button>
+                        <button id="exportBtn" class="export-btn">📁 Export Data</button>
+                        <input type="file" id="importInput" accept=".json" style="display: none;">
+                        <button id="importBtn" class="import-btn">📂 Import Data</button>
+                    </div>
+                </div>
+                
+                <div id="stocksContainer" class="stocks-container">
+                    <div class="empty-state">
+                        <p>No stocks added yet</p>
+                        <p>Add your first stock above to get started</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>Data provided by Yahoo Finance API</p>
+        </footer>
+    </div>
+
+    <!-- Loading overlay -->
+    <div id="loadingOverlay" class="loading-overlay hidden">
+        <div class="loading-spinner"></div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/storage.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
