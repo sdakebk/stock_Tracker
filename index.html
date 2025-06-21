@@ -3,14 +3,325 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stock Tracker Pro</title>
-    <link rel="stylesheet" href="css/styles.css">
+    <title>Stock Tracker Pro - LocalStorage Version</title>
+    <style>
+        /* Reset and Base Styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #fff;
+            min-height: 100vh;
+            color: #111;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* Header */
+        header {
+            text-align: center;
+            margin-bottom: 2rem;
+            color: #111;
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        header p {
+            font-size: 1.1rem;
+            opacity: 0.8;
+        }
+
+        /* Main Content */
+        main {
+            display: grid;
+            gap: 2rem;
+        }
+
+        section {
+            background: #fff;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .add-stock-section h2,
+        .stocks-section h2 {
+            margin-bottom: 1rem;
+            color: #111;
+            font-size: 1.5rem;
+        }
+
+        /* Form Styles */
+        .form-group {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .form-group input {
+            flex: 1;
+            min-width: 200px;
+            padding: 12px 16px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #007AFF;
+        }
+
+        .form-group button {
+            padding: 12px 24px;
+            background: #007AFF;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .form-group button:hover {
+            background: #0056B3;
+        }
+
+        .form-group button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        /* Section Header */
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .controls {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .controls button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: #6C757D;
+            color: #fff;
+        }
+
+        .controls button:hover {
+            background: #495057;
+        }
+
+        /* Portfolio Summary */
+        .portfolio-summary {
+            background: #F8F9FA;
+            padding: 10px 15px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 0.9rem;
+            color: #6C757D;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: #888;
+        }
+
+        .empty-state p:first-child {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        /* Stock Table */
+        .stocks-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+            background: #fff;
+        }
+
+        .stocks-table th,
+        .stocks-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #E9ECEF;
+        }
+
+        .stocks-table th {
+            background: #F8F9FA;
+            font-weight: 600;
+            color: #495057;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stocks-table tr:hover {
+            background: #F8F9FA;
+        }
+
+        .stock-symbol {
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: #007AFF;
+        }
+
+        .stock-price {
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+
+        .stock-change {
+            font-weight: 600;
+        }
+
+        .positive {
+            color: #28A745;
+        }
+
+        .negative {
+            color: #DC3545;
+        }
+
+        .neutral {
+            color: #6C757D;
+        }
+
+        .loading {
+            color: #007AFF;
+            font-style: italic;
+        }
+
+        .error {
+            color: #DC3545;
+            font-size: 0.9rem;
+        }
+
+        .target-input {
+            width: 100px;
+            padding: 6px 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+
+        .target-input:focus {
+            outline: none;
+            border-color: #007AFF;
+        }
+
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            text-align: center;
+            display: inline-block;
+            min-width: 80px;
+        }
+
+        .status-above {
+            background: #D4EDDA;
+            color: #155724;
+        }
+
+        .status-below {
+            background: #F8D7DA;
+            color: #721C24;
+        }
+
+        .status-at {
+            background: #D1ECF1;
+            color: #0C5460;
+        }
+
+        .delete-btn {
+            background: #DC3545;
+            color: #fff;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        .delete-btn:hover {
+            background: #C82333;
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            margin-top: 2rem;
+            color: #6C757D;
+            font-size: 0.9rem;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            header h1 {
+                font-size: 2rem;
+            }
+            
+            .form-group {
+                flex-direction: column;
+            }
+            
+            .section-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            
+            .stocks-table {
+                font-size: 0.9rem;
+            }
+            
+            .stocks-table th,
+            .stocks-table td {
+                padding: 8px;
+            }
+        }
+    </style>
 </head>
 <body>
     <div class="container">
         <header>
             <h1>📈 Stock Tracker Pro</h1>
-            <p>Track your favorite stocks and set target prices</p>
+            <p>Track your favorite stocks with persistent local storage</p>
         </header>
 
         <main>
@@ -24,6 +335,7 @@
                             placeholder="Stock Symbol (e.g., AAPL)" 
                             maxlength="10"
                             required
+                            autocomplete="off"
                         >
                         <input 
                             type="number" 
@@ -35,6 +347,9 @@
                         <button type="submit" id="addBtn">Add Stock</button>
                     </div>
                 </form>
+                <p style="margin-top: 10px; font-size: 0.9rem; color: #6C757D;">
+                    💾 Your data is saved locally and will persist between sessions
+                </p>
             </section>
 
             <section class="stocks-section">
@@ -52,24 +367,27 @@
                     <div class="empty-state">
                         <p>No stocks added yet</p>
                         <p>Add your first stock above to get started</p>
+                        <p><small>Your data will be saved locally in your browser</small></p>
                     </div>
                 </div>
             </section>
         </main>
 
         <footer>
-            <p>Data provided by Yahoo Finance API</p>
+            <p>Data provided by Yahoo Finance API | Saved locally with localStorage</p>
+            <p style="font-size: 0.8rem; margin-top: 5px;">
+                💡 Tip: Use Ctrl+R to refresh, Ctrl+S to export, Ctrl+I to import
+            </p>
         </footer>
-    </div>
-
-    <!-- Loading overlay -->
-    <div id="loadingOverlay" class="loading-overlay hidden">
-        <div class="loading-spinner"></div>
     </div>
 
     <!-- Scripts -->
     <script src="js/storage.js"></script>
     <script src="js/api.js"></script>
+    <script>
+      window.stockStorage = new StockStorage();
+      window.stockAPI = new StockAPI();
+    </script>
     <script src="js/app.js"></script>
 </body>
 </html>
