@@ -325,6 +325,25 @@
         </header>
 
         <main>
+            <section class="stocks-section">
+                <div class="section-header">
+                    <h2>Your Portfolio</h2>
+                    <div class="controls">
+                        <button id="refreshAllBtn" class="refresh-btn">🔄 Refresh All</button>
+                        <button id="exportBtn" class="export-btn">📁 Export Data</button>
+                        <input type="file" id="importInput" accept=".json" style="display: none;">
+                        <button id="importBtn" class="import-btn">📂 Import Data</button>
+                    </div>
+                </div>
+                
+                <div id="stocksContainer" class="stocks-container">
+                    <div class="empty-state">
+                        <p>No stocks added yet</p>
+                        <p>Add your first stock above to get started</p>
+                        <p><small>Your data will be saved locally in your browser</small></p>
+                    </div>
+                </div>
+            </section>
             <section class="add-stock-section">
                 <h2>Add New Stock</h2>
                 <form id="addStockForm" class="stock-form">
@@ -350,26 +369,6 @@
                 <p style="margin-top: 10px; font-size: 0.9rem; color: #6C757D;">
                     💾 Your data is saved locally and will persist between sessions
                 </p>
-            </section>
-
-            <section class="stocks-section">
-                <div class="section-header">
-                    <h2>Your Portfolio</h2>
-                    <div class="controls">
-                        <button id="refreshAllBtn" class="refresh-btn">🔄 Refresh All</button>
-                        <button id="exportBtn" class="export-btn">📁 Export Data</button>
-                        <input type="file" id="importInput" accept=".json" style="display: none;">
-                        <button id="importBtn" class="import-btn">📂 Import Data</button>
-                    </div>
-                </div>
-                
-                <div id="stocksContainer" class="stocks-container">
-                    <div class="empty-state">
-                        <p>No stocks added yet</p>
-                        <p>Add your first stock above to get started</p>
-                        <p><small>Your data will be saved locally in your browser</small></p>
-                    </div>
-                </div>
             </section>
         </main>
 

@@ -72,135 +72,54 @@ class StockAPI {
      */
     async makeAPIRequest(symbol) {
         const upperSymbol = symbol.toUpperCase();
-        
         try {
-            // Primary API: Yahoo Finance Chart API
-            const result = await this.fetchFromYahooChart(upperSymbol);
+            const result = await this.fetchFromTwelveData(upperSymbol);
             if (result.success) {
                 return result;
             }
         } catch (error) {
-            console.error(`Primary API failed for ${symbol}:`, error);
+            console.error(`Twelve Data API failed for ${symbol}:`, error);
         }
+        throw new Error('Twelve Data API failed');
+    }
 
+    /**
+     * Fetch from Twelve Data API
+     * @param {string} symbol - Stock symbol
+     * @returns {Promise<Object>} API response
+     */
+    async fetchFromTwelveData(symbol) {
+        const apiKey = '5ea0b505d20a47b6a4514f3711750c08';
+        const url = `https://api.twelvedata.com/price?symbol=${encodeURIComponent(symbol)}&apikey=${apiKey}`;
         try {
-            // Fallback API: Yahoo Finance Quote Summary
-            const result = await this.fetchFromYahooQuote(upperSymbol);
-            if (result.success) {
-                return result;
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            const data = await response.json();
+            if (data.price) {
+                return {
+                    success: true,
+                    price: parseFloat(data.price),
+                    change: null,
+                    changePercent: null,
+                    volume: null,
+                    marketCap: null,
+                    currency: 'USD',
+                    source: 'twelvedata'
+                };
+            } else {
+                return {
+                    success: false,
+                    error: data.message || 'No price data returned from Twelve Data'
+                };
             }
         } catch (error) {
-            console.error(`Fallback API failed for ${symbol}:`, error);
+            return {
+                success: false,
+                error: error.message || 'Failed to fetch from Twelve Data'
+            };
         }
-
-        // If both APIs fail, return error
-        throw new Error('All API endpoints failed');
-    }
-
-    /**
-     * Fetch from Yahoo Finance Chart API
-     * @param {string} symbol - Stock symbol
-     * @returns {Promise<Object>} API response
-     */
-    async fetchFromYahooChart(symbol) {
-        const proxyUrl = 'https://api.allorigins.win/raw?url=';
-        const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}`;
-        const url = proxyUrl + encodeURIComponent(targetUrl);
-
-        console.log(`Fetching from Chart API: ${symbol}`);
-        
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json',
-            }
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        
-        if (!data.chart || !data.chart.result || data.chart.result.length === 0) {
-            throw new Error('No chart data available');
-        }
-
-        const result = data.chart.result[0];
-        const meta = result.meta;
-
-        if (!meta || !meta.regularMarketPrice) {
-            throw new Error('Missing price data in response');
-        }
-
-        const currentPrice = meta.regularMarketPrice;
-        const previousClose = meta.previousClose || meta.chartPreviousClose;
-        const change = currentPrice - previousClose;
-        const changePercent = (change / previousClose) * 100;
-
-        return {
-            success: true,
-            price: parseFloat(currentPrice.toFixed(2)),
-            change: parseFloat(change.toFixed(2)),
-            changePercent: parseFloat(changePercent.toFixed(2)),
-            volume: meta.regularMarketVolume || null,
-            marketCap: meta.marketCap || null,
-            currency: meta.currency || 'USD',
-            source: 'yahoo_chart'
-        };
-    }
-
-    /**
-     * Fetch from Yahoo Finance Quote Summary API
-     * @param {string} symbol - Stock symbol
-     * @returns {Promise<Object>} API response
-     */
-    async fetchFromYahooQuote(symbol) {
-        const proxyUrl = 'https://api.allorigins.win/raw?url=';
-        const targetUrl = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${symbol}?modules=price`;
-        const url = proxyUrl + encodeURIComponent(targetUrl);
-
-        console.log(`Fetching from Quote API: ${symbol}`);
-
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json',
-            }
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-
-        if (!data.quoteSummary || !data.quoteSummary.result || 
-            data.quoteSummary.result.length === 0) {
-            throw new Error('No quote data available');
-        }
-
-        const priceData = data.quoteSummary.result[0].price;
-
-        if (!priceData || !priceData.regularMarketPrice) {
-            throw new Error('Missing price data in quote response');
-        }
-
-        const currentPrice = priceData.regularMarketPrice.raw;
-        const previousClose = priceData.regularMarketPreviousClose.raw;
-        const change = currentPrice - previousClose;
-        const changePercent = (change / previousClose) * 100;
-
-        return {
-            success: true,
-            price: parseFloat(currentPrice.toFixed(2)),
-            change: parseFloat(change.toFixed(2)),
-            changePercent: parseFloat(changePercent.toFixed(2)),
-            volume: priceData.regularMarketVolume?.raw || null,
-            marketCap: priceData.marketCap?.raw || null,
-            currency: priceData.currency || 'USD',
-            source: 'yahoo_quote'
-        };
     }
 
     /**
