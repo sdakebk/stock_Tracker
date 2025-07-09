@@ -10,6 +10,8 @@ class StockTrackerApp {
         this.refreshInterval = null;
         this.autoRefreshEnabled = false;
         this.autoRefreshIntervalMs = 5 * 60 * 1000; // 5 minutes
+        this.statusSortActive = false; // New: track if status sorting is active
+        this.statusSortOrder = 'asc'; // or 'desc'
 
         this.init();
     }
@@ -488,9 +490,32 @@ class StockTrackerApp {
             return;
         }
 
-        // Sort stocks by symbol for consistent display
-        const sortedStocks = [...stocks].sort((a, b) => a.symbol.localeCompare(b.symbol));
+        // Sort stocks by status if requested
+        let sortedStocks = [...stocks];
+        if (this.statusSortActive) {
+            sortedStocks.sort((a, b) => {
+                // Calculate percent difference for each stock
+                const getPercentDiff = stock => {
+                    if (!stock.targetPrice || stock.currentPrice === null) {
+                        // Place missing data at top for asc, bottom for desc
+                        return this.statusSortOrder === 'asc' ? -Infinity : Infinity;
+                    }
+                    const diff = stock.currentPrice - stock.targetPrice;
+                    return (diff / stock.targetPrice) * 100;
+                };
+                const percentA = getPercentDiff(a);
+                const percentB = getPercentDiff(b);
+                if (this.statusSortOrder === 'asc') {
+                    return percentA - percentB;
+                } else {
+                    return percentB - percentA;
+                }
+            });
+        } else {
+            sortedStocks.sort((a, b) => a.symbol.localeCompare(b.symbol));
+        }
 
+        const arrow = this.statusSortOrder === 'asc' ? '▲' : '▼';
         const tableHtml = `
             <div class="portfolio-summary">
                 <p><strong>Portfolio:</strong> ${stocks.length} stocks | 
@@ -503,7 +528,7 @@ class StockTrackerApp {
                         <th>Current Price</th>
                         <th>Change</th>
                         <th>Target Price</th>
-                        <th>Status</th>
+                        <th>Status <button id="statusSortBtn" style="background:none;border:none;cursor:pointer;font-size:1em;vertical-align:middle;" title="Sort by Status">${arrow}</button></th>
                         <th>Last Updated</th>
                         <th>Actions</th>
                     </tr>
@@ -515,6 +540,16 @@ class StockTrackerApp {
         `;
 
         container.innerHTML = tableHtml;
+
+        // Add event listener for sort button
+        const sortBtn = document.getElementById('statusSortBtn');
+        if (sortBtn) {
+            sortBtn.onclick = () => {
+                this.statusSortActive = true;
+                this.statusSortOrder = this.statusSortOrder === 'asc' ? 'desc' : 'asc';
+                this.renderStocks();
+            };
+        }
     }
 
     /**
