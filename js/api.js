@@ -1,6 +1,7 @@
 /**
  * Stock API Management for Stock Tracker
  * Handles all external API calls and data fetching
+ * Updated to use Finnhub API
  */
 
 class StockAPI {
@@ -9,7 +10,7 @@ class StockAPI {
         this.cacheExpiry = 5 * 60 * 1000; // 5 minutes
         this.requestQueue = [];
         this.isProcessing = false;
-        this.rateLimitDelay = 1000; // 1 second between requests
+        this.rateLimitDelay = 1000; // 1 second between requests (conservative for free tier)
     }
 
     /**
@@ -73,51 +74,115 @@ class StockAPI {
     async makeAPIRequest(symbol) {
         const upperSymbol = symbol.toUpperCase();
         try {
-            const result = await this.fetchFromTwelveData(upperSymbol);
+            const result = await this.fetchFromFinnhub(upperSymbol);
             if (result.success) {
                 return result;
             }
         } catch (error) {
-            console.error(`Twelve Data API failed for ${symbol}:`, error);
+            console.error(`Finnhub API failed for ${symbol}:`, error);
         }
-        throw new Error('Twelve Data API failed');
+        throw new Error('Finnhub API failed');
     }
 
     /**
-     * Fetch from Twelve Data API
+     * Fetch from Finnhub API
      * @param {string} symbol - Stock symbol
      * @returns {Promise<Object>} API response
      */
-    async fetchFromTwelveData(symbol) {
-        const apiKey = '5ea0b505d20a47b6a4514f3711750c08';
-        const url = `https://api.twelvedata.com/price?symbol=${encodeURIComponent(symbol)}&apikey=${apiKey}`;
+    async fetchFromFinnhub(symbol) {
+        const apiKey = 'd0t1tphr01qid5qc847gd0t1tphr01qid5qc8480';
+        const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`;
+        
         try {
             const response = await fetch(url);
+            
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
+            
             const data = await response.json();
-            if (data.price) {
+            
+            // Finnhub returns: { c: current, h: high, l: low, o: open, pc: previous close, t: timestamp }
+            if (data.c !== undefined && data.c !== null && data.c > 0) {
+                const currentPrice = data.c;
+                const previousClose = data.pc;
+                const change = currentPrice - previousClose;
+                const changePercent = ((change / previousClose) * 100);
+                
                 return {
                     success: true,
-                    price: parseFloat(data.price),
-                    change: null,
-                    changePercent: null,
-                    volume: null,
-                    marketCap: null,
+                    price: parseFloat(currentPrice.toFixed(2)),
+                    change: parseFloat(change.toFixed(2)),
+                    changePercent: parseFloat(changePercent.toFixed(2)),
+                    previousClose: parseFloat(previousClose.toFixed(2)),
+                    high: data.h ? parseFloat(data.h.toFixed(2)) : null,
+                    low: data.l ? parseFloat(data.l.toFixed(2)) : null,
+                    open: data.o ? parseFloat(data.o.toFixed(2)) : null,
+                    volume: null, // Not available in quote endpoint
+                    marketCap: null, // Not available in quote endpoint
                     currency: 'USD',
-                    source: 'twelvedata'
+                    timestamp: data.t,
+                    source: 'finnhub'
+                };
+            } else {
+                // Check if it's an error response
+                if (data.error) {
+                    return {
+                        success: false,
+                        error: data.error
+                    };
+                }
+                
+                return {
+                    success: false,
+                    error: 'No price data returned from Finnhub - symbol may not exist'
+                };
+            }
+        } catch (error) {
+            console.error('Finnhub API error:', error);
+            return {
+                success: false,
+                error: error.message || 'Failed to fetch from Finnhub'
+            };
+        }
+    }
+
+    /**
+     * Fetch company profile from Finnhub (bonus feature)
+     * @param {string} symbol - Stock symbol
+     * @returns {Promise<Object>} Company data
+     */
+    async fetchCompanyProfile(symbol) {
+        const apiKey = 'd0t1tphr01qid5qc847gd0t1tphr01qid5qc8480';
+        const url = `https://finnhub.io/api/v1/stock/profile2?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`;
+        
+        try {
+            const response = await fetch(url);
+            const data = await response.json();
+            
+            if (data.name) {
+                return {
+                    success: true,
+                    name: data.name,
+                    ticker: data.ticker,
+                    exchange: data.exchange,
+                    industry: data.finnhubIndustry,
+                    marketCap: data.marketCapitalization,
+                    country: data.country,
+                    currency: data.currency,
+                    website: data.weburl,
+                    logo: data.logo
                 };
             } else {
                 return {
                     success: false,
-                    error: data.message || 'No price data returned from Twelve Data'
+                    error: 'Company not found'
                 };
             }
         } catch (error) {
             return {
                 success: false,
-                error: error.message || 'Failed to fetch from Twelve Data'
+                error: error.message
             };
         }
     }
@@ -239,47 +304,37 @@ class StockAPI {
     }
 
     /**
-     * Get market status (simplified)
-     * @returns {Object} Market status info
+     * Get market status from Finnhub
+     * @returns {Promise<Object>} Market status info
      */
-    getMarketStatus() {
-        const now = new Date();
-        const day = now.getDay(); // 0 = Sunday, 6 = Saturday
-        const hour = now.getHours();
-
-        // Basic US market hours check (9:30 AM - 4:00 PM ET, Monday-Friday)
-        // This is simplified and doesn't account for holidays or timezone differences
-        const isWeekday = day >= 1 && day <= 5;
-        const isMarketHours = hour >= 9 && hour < 16;
-
-        return {
-            isOpen: isWeekday && isMarketHours,
-            nextOpen: this.getNextMarketOpen(now),
-            timezone: 'ET'
-        };
-    }
-
-    /**
-     * Calculate next market open time (simplified)
-     * @param {Date} now - Current date
-     * @returns {Date} Next market open date
-     */
-    getNextMarketOpen(now) {
-        const nextOpen = new Date(now);
+    async getMarketStatus() {
+        const apiKey = 'd0t1tphr01qid5qc847gd0t1tphr01qid5qc8480';
         
-        // If it's weekend, move to next Monday
-        if (now.getDay() === 0) { // Sunday
-            nextOpen.setDate(now.getDate() + 1);
-        } else if (now.getDay() === 6) { // Saturday
-            nextOpen.setDate(now.getDate() + 2);
-        } else if (now.getHours() >= 16) { // After market close
-            nextOpen.setDate(now.getDate() + 1);
+        try {
+            const response = await fetch(`https://finnhub.io/api/v1/stock/market-status?exchange=US&token=${apiKey}`);
+            const data = await response.json();
+            
+            return {
+                isOpen: data.isOpen || false,
+                session: data.session || 'unknown',
+                timezone: data.timezone || 'America/New_York',
+                source: 'finnhub'
+            };
+        } catch (error) {
+            // Fallback to simple time-based check
+            const now = new Date();
+            const day = now.getDay();
+            const hour = now.getHours();
+            const isWeekday = day >= 1 && day <= 5;
+            const isMarketHours = hour >= 9 && hour < 16;
+
+            return {
+                isOpen: isWeekday && isMarketHours,
+                session: 'estimated',
+                timezone: 'ET',
+                source: 'fallback'
+            };
         }
-
-        // Set to 9:30 AM
-        nextOpen.setHours(9, 30, 0, 0);
-        
-        return nextOpen;
     }
 
     /**
@@ -289,14 +344,44 @@ class StockAPI {
     getSupportedMarkets() {
         return [
             { code: 'US', name: 'United States', exchanges: ['NASDAQ', 'NYSE', 'AMEX'] },
-            { code: 'CA', name: 'Canada', exchanges: ['TSX', 'TSXV'] },
-            { code: 'UK', name: 'United Kingdom', exchanges: ['LSE'] },
-            { code: 'DE', name: 'Germany', exchanges: ['XETRA'] },
-            { code: 'JP', name: 'Japan', exchanges: ['TSE'] },
-            { code: 'AU', name: 'Australia', exchanges: ['ASX'] }
+            { code: 'CA', name: 'Canada', exchanges: ['TSX'] },
+            { code: 'EU', name: 'Europe', exchanges: ['LSE', 'XETRA', 'EPA'] },
+            { code: 'AS', name: 'Asia', exchanges: ['TSE', 'HKEX', 'SSE'] }
         ];
+    }
+
+    /**
+     * Test API connection
+     * @returns {Promise<Object>} Connection test result
+     */
+    async testConnection() {
+        console.log('Testing Finnhub API connection...');
+        
+        try {
+            const result = await this.fetchStockPrice('AAPL');
+            return {
+                success: result.success,
+                message: result.success ? 'Finnhub API connection successful' : 'API returned error',
+                data: result
+            };
+        } catch (error) {
+            return {
+                success: false,
+                message: 'Failed to connect to Finnhub API',
+                error: error.message
+            };
+        }
     }
 }
 
 // Create global API instance
 window.stockAPI = new StockAPI();
+
+// Auto-test connection when loaded
+window.stockAPI.testConnection().then(result => {
+    if (result.success) {
+        console.log('✅ Finnhub API ready');
+    } else {
+        console.error('❌ Finnhub API connection failed:', result.message);
+    }
+});
