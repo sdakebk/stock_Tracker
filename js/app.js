@@ -1,6 +1,6 @@
 /**
  * Main Application Logic for Stock Tracker
- * Coordinates between storage, API, and UI components with localStorage persistence
+ * Optimized for efficient Finnhub API usage
  */
 
 class StockTrackerApp {
@@ -9,9 +9,10 @@ class StockTrackerApp {
         this.api = window.stockAPI;
         this.refreshInterval = null;
         this.autoRefreshEnabled = false;
-        this.autoRefreshIntervalMs = 5 * 60 * 1000; // 5 minutes
-        this.statusSortActive = false; // New: track if status sorting is active
-        this.statusSortOrder = 'asc'; // or 'desc'
+        this.autoRefreshIntervalMs = 30 * 60 * 1000; // 30 minutes (more conservative)
+        this.statusSortActive = false;
+        this.statusSortOrder = 'asc';
+        this.lastFullRefresh = this.loadLastFullRefresh();
 
         this.init();
     }
@@ -20,22 +21,30 @@ class StockTrackerApp {
      * Initialize the application
      */
     init() {
-        // Check if localStorage is available
         if (!this.storage.isLocalStorageAvailable()) {
             this.showMessage('LocalStorage not available. Data will not persist.', 'warning');
         }
+
+        // Reset all stocks' loading state to false on startup
+        const stocks = this.storage.getAllStocks();
+        stocks.forEach(stock => {
+            if (stock.loading) {
+                this.storage.updateStock(stock.symbol, { loading: false });
+            }
+        });
 
         this.setupEventListeners();
         this.renderStocks();
         this.updateMarketStatus();
         this.showStorageInfo();
+        this.showQuotaStatus(); // NEW: Show API quota status
         
-        // Auto-refresh during market hours
-        this.startAutoRefresh();
+        // More conservative auto-refresh
+        this.startSmartAutoRefresh();
         
-        console.log('Stock Tracker App initialized with localStorage');
+        console.log('Stock Tracker App initialized with API optimization');
         console.log('Storage stats:', this.storage.getStats());
-        console.log('Storage quota:', this.storage.getStorageQuota());
+        console.log('API quota:', this.api.getQuotaStatus());
     }
 
     /**
@@ -49,19 +58,18 @@ class StockTrackerApp {
             this.handleAddStock();
         });
 
-        // Refresh all button
+        // Refresh all button with quota check
         const refreshAllBtn = document.getElementById('refreshAllBtn');
         refreshAllBtn.addEventListener('click', () => {
-            this.handleRefreshAll();
+            this.handleRefreshAllWithQuotaCheck();
         });
 
-        // Export button
+        // Export and import buttons
         const exportBtn = document.getElementById('exportBtn');
         exportBtn.addEventListener('click', () => {
             this.handleExport();
         });
 
-        // Import button and file input
         const importBtn = document.getElementById('importBtn');
         const importInput = document.getElementById('importInput');
         
@@ -79,7 +87,7 @@ class StockTrackerApp {
                 switch (e.key) {
                     case 'r':
                         e.preventDefault();
-                        this.handleRefreshAll();
+                        this.handleRefreshAllWithQuotaCheck();
                         break;
                     case 's':
                         e.preventDefault();
@@ -92,27 +100,24 @@ class StockTrackerApp {
                 }
             }
             
-            // Clear all data with Ctrl+Shift+Delete
             if (e.ctrlKey && e.shiftKey && e.key === 'Delete') {
                 e.preventDefault();
                 this.handleClearAllData();
             }
         });
 
-        // Handle page visibility change for auto-refresh
+        // Handle page visibility change for smart refresh
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
-                // Page became visible, refresh if data is stale
-                this.checkAndRefreshStaleData();
+                this.checkAndSmartRefresh();
             }
         });
 
-        // Handle before page unload for backup reminder
+        // Before unload warning
         window.addEventListener('beforeunload', (e) => {
             const stats = this.storage.getStats();
             const lastBackup = this.storage.settings.lastBackup;
             
-            // Warn if user has data but no recent backup
             if (stats.totalStocks > 0 && (!lastBackup || 
                 new Date() - new Date(lastBackup) > 7 * 24 * 60 * 60 * 1000)) {
                 e.preventDefault();
@@ -122,7 +127,7 @@ class StockTrackerApp {
     }
 
     /**
-     * Handle adding a new stock
+     * Handle adding a new stock with quota check
      */
     async handleAddStock() {
         const symbolInput = document.getElementById('stockSymbol');
@@ -145,14 +150,19 @@ class StockTrackerApp {
             return;
         }
 
-        // Check if stock already exists
         if (this.storage.getStock(symbol)) {
             this.showMessage(`${symbol} already exists in your portfolio`, 'error');
             symbolInput.focus();
             return;
         }
 
-        // Disable form while processing
+        // NEW: Check API quota before adding
+        const quotaStatus = this.api.getQuotaStatus();
+        if (!quotaStatus.canMakeRequest) {
+            this.showMessage(`Daily API quota exceeded (${quotaStatus.used}/${quotaStatus.limit}). Try again tomorrow.`, 'error');
+            return;
+        }
+
         this.setFormDisabled(true);
         addBtn.textContent = 'Adding...';
 
@@ -164,33 +174,95 @@ class StockTrackerApp {
                 throw new Error('Failed to add stock to storage');
             }
 
-            // Update UI immediately
             this.renderStocks();
 
             // Fetch price data
             await this.updateStockPrice(symbol);
 
-            // Clear form
             symbolInput.value = '';
             targetInput.value = '';
             
-            this.showMessage(`${symbol} added successfully!`, 'success');
+            // NEW: Show quota status after adding
+            const newQuotaStatus = this.api.getQuotaStatus();
+            this.showMessage(
+                `${symbol} added successfully! (${newQuotaStatus.used}/${newQuotaStatus.limit} API calls used today)`, 
+                'success'
+            );
             
-            // Focus back to symbol input for easy addition of more stocks
             symbolInput.focus();
         } catch (error) {
             console.error('Error adding stock:', error);
-            this.storage.removeStock(symbol); // Clean up if price fetch failed
+            this.storage.removeStock(symbol);
             this.showMessage(`Error adding ${symbol}: ${error.message}`, 'error');
         } finally {
             this.setFormDisabled(false);
             addBtn.textContent = 'Add Stock';
             this.renderStocks();
+            this.showQuotaStatus(); // Update quota display
         }
     }
 
     /**
-     * Handle refreshing all stock prices
+     * NEW: Handle refreshing all stocks with quota check
+     */
+    async handleRefreshAllWithQuotaCheck() {
+        const stocks = this.storage.getAllStocks();
+        
+        if (stocks.length === 0) {
+            this.showMessage('No stocks to refresh', 'info');
+            return;
+        }
+
+        const quotaStatus = this.api.getQuotaStatus();
+        
+        // Warn user if they don't have enough quota
+        if (quotaStatus.remaining < stocks.length) {
+            const proceed = confirm(
+                `⚠️ API Quota Warning\n\n` +
+                `You have ${quotaStatus.remaining} API calls remaining today.\n` +
+                `Refreshing ${stocks.length} stocks will use ${stocks.length} calls.\n\n` +
+                `This will ${quotaStatus.remaining < stocks.length ? 'exceed your daily limit' : 'use most of your quota'}.\n\n` +
+                `Continue anyway? (Only first ${quotaStatus.remaining} stocks will be updated)`
+            );
+            
+            if (!proceed) {
+                return;
+            }
+        }
+
+        await this.handleRefreshAll();
+    }
+
+    /**
+     * NEW: Smart refresh - only refresh if data is stale and we have quota
+     */
+    checkAndSmartRefresh() {
+        const quotaStatus = this.api.getQuotaStatus();
+        
+        // Don't auto-refresh if quota is low
+        if (quotaStatus.remaining < 5) {
+            console.log('⚠️ Skipping auto-refresh due to low quota');
+            return;
+        }
+
+        const stocks = this.storage.getAllStocks();
+        const staleThreshold = 60 * 60 * 1000; // 1 hour for smart refresh
+        const now = new Date();
+
+        const staleStocks = stocks.filter(stock => {
+            if (!stock.lastUpdated) return true;
+            return now - new Date(stock.lastUpdated) > staleThreshold;
+        });
+
+        // Only refresh if we have stale data and sufficient quota
+        if (staleStocks.length > 0 && staleStocks.length <= quotaStatus.remaining) {
+            console.log(`📱 Smart refresh: ${staleStocks.length} stale stocks, ${quotaStatus.remaining} quota remaining`);
+            this.handleRefreshAll();
+        }
+    }
+
+    /**
+     * Handle refreshing all stock prices (UPDATED for new API)
      */
     async handleRefreshAll() {
         const stocks = this.storage.getAllStocks();
@@ -203,7 +275,6 @@ class StockTrackerApp {
         const refreshBtn = document.getElementById('refreshAllBtn');
         const originalText = refreshBtn.textContent;
         refreshBtn.disabled = true;
-        refreshBtn.textContent = 'Refreshing...';
 
         // Set all stocks to loading state
         stocks.forEach(stock => {
@@ -213,34 +284,57 @@ class StockTrackerApp {
 
         let successCount = 0;
         let errorCount = 0;
+        let quotaExceededCount = 0;
 
         try {
             const symbols = stocks.map(s => s.symbol);
             
-            // Use batch fetch with progress tracking
-            await this.api.batchFetch(symbols, (progress) => {
-                refreshBtn.textContent = `Refreshing... ${progress.percentage}%`;
+            // NEW: Use optimized batch fetch with progress tracking
+            const results = await this.api.batchFetch(symbols, (progress) => {
+                refreshBtn.textContent = `Refreshing... ${progress.percentage}% (${progress.quotaUsed}/${progress.quotaLimit} quota)`;
             });
 
-            // Update all stocks with new data
-            for (const stock of stocks) {
-                try {
-                    await this.updateStockPrice(stock.symbol);
+            // Process results
+            for (const result of results) {
+                if (result.success) {
+                    this.storage.updateStock(result.symbol, {
+                        currentPrice: result.price,
+                        change: result.change,
+                        changePercent: result.changePercent,
+                        loading: false,
+                        error: null
+                    });
                     successCount++;
-                } catch (error) {
-                    console.error(`Failed to update ${stock.symbol}:`, error);
-                    errorCount++;
+                } else {
+                    this.storage.updateStock(result.symbol, {
+                        loading: false,
+                        error: result.error
+                    });
+                    
+                    if (result.error.includes('quota')) {
+                        quotaExceededCount++;
+                    } else {
+                        errorCount++;
+                    }
                 }
             }
 
-            // Show appropriate message based on results
-            if (errorCount === 0) {
-                this.showMessage(`All ${successCount} stocks refreshed successfully!`, 'success');
-            } else if (successCount > 0) {
-                this.showMessage(`${successCount} stocks refreshed, ${errorCount} failed`, 'warning');
+            // Save last refresh time
+            this.saveLastFullRefresh();
+
+            // NEW: Show results with quota info
+            const quotaStatus = this.api.getQuotaStatus();
+            let message = '';
+            
+            if (quotaExceededCount > 0) {
+                message = `⚠️ ${successCount} stocks refreshed, ${quotaExceededCount} skipped (quota limit), ${errorCount} failed`;
+            } else if (errorCount === 0) {
+                message = `✅ All ${successCount} stocks refreshed! (${quotaStatus.used}/${quotaStatus.limit} quota used)`;
             } else {
-                this.showMessage('Failed to refresh any stocks', 'error');
+                message = `⚠️ ${successCount} stocks refreshed, ${errorCount} failed (${quotaStatus.used}/${quotaStatus.limit} quota used)`;
             }
+            
+            this.showMessage(message, errorCount === 0 ? 'success' : 'warning');
         } catch (error) {
             console.error('Error refreshing stocks:', error);
             this.showMessage('Error occurred while refreshing stocks', 'error');
@@ -248,31 +342,12 @@ class StockTrackerApp {
             refreshBtn.disabled = false;
             refreshBtn.textContent = originalText;
             this.renderStocks();
+            this.showQuotaStatus(); // Update quota display
         }
     }
 
     /**
-     * Check and refresh stale data
-     */
-    checkAndRefreshStaleData() {
-        const stocks = this.storage.getAllStocks();
-        const staleThreshold = 10 * 60 * 1000; // 10 minutes
-        const now = new Date();
-
-        const staleStocks = stocks.filter(stock => {
-            if (!stock.lastUpdated) return true;
-            return now - new Date(stock.lastUpdated) > staleThreshold;
-        });
-
-        if (staleStocks.length > 0) {
-            console.log(`Found ${staleStocks.length} stale stocks, refreshing...`);
-            this.handleRefreshAll();
-        }
-    }
-
-    /**
-     * Update price for a specific stock
-     * @param {string} symbol - Stock symbol
+     * Update price for a specific stock (SAME as before - no changes needed)
      */
     async updateStockPrice(symbol) {
         try {
@@ -305,6 +380,112 @@ class StockTrackerApp {
         
         this.renderStocks();
     }
+
+    /**
+     * NEW: Show current API quota status
+     */
+    showQuotaStatus() {
+        const quotaStatus = this.api.getQuotaStatus();
+        let quotaElement = document.getElementById('quotaStatus');
+        
+        if (!quotaElement) {
+            // Create quota status element
+            quotaElement = document.createElement('div');
+            quotaElement.id = 'quotaStatus';
+            quotaElement.style.cssText = `
+                text-align: center;
+                padding: 8px;
+                margin: 10px 0;
+                border-radius: 6px;
+                font-size: 0.9rem;
+                font-weight: 500;
+            `;
+            
+            // Insert after the header
+            const header = document.querySelector('header');
+            if (header) {
+                header.parentNode.insertBefore(quotaElement, header.nextSibling);
+            }
+        }
+        
+        // Update content and styling based on quota level
+        quotaElement.textContent = `API Quota: ${quotaStatus.used}/${quotaStatus.limit} used today (${quotaStatus.remaining} remaining)`;
+        
+        if (quotaStatus.remaining < 5) {
+            quotaElement.style.background = '#f8d7da';
+            quotaElement.style.color = '#721c24';
+            quotaElement.style.border = '1px solid #f5c6cb';
+        } else if (quotaStatus.remaining < 15) {
+            quotaElement.style.background = '#fff3cd';
+            quotaElement.style.color = '#856404';
+            quotaElement.style.border = '1px solid #ffeaa7';
+        } else {
+            quotaElement.style.background = '#d1ecf1';
+            quotaElement.style.color = '#0c5460';
+            quotaElement.style.border = '1px solid #bee5eb';
+        }
+    }
+
+    /**
+     * NEW: Start smart auto-refresh with quota awareness
+     */
+    startSmartAutoRefresh() {
+        if (this.refreshInterval) {
+            clearInterval(this.refreshInterval);
+        }
+
+        this.refreshInterval = setInterval(() => {
+            const status = this.api.getMarketStatus();
+            const quotaStatus = this.api.getQuotaStatus();
+            const stocks = this.storage.getAllStocks();
+            
+            // Only auto-refresh if:
+            // 1. Market is open
+            // 2. We have stocks
+            // 3. We have sufficient API quota (at least 10 calls remaining)
+            // 4. It's been at least 30 minutes since last refresh
+            const timeSinceLastRefresh = Date.now() - this.lastFullRefresh;
+            const shouldRefresh = status.isOpen && 
+                                stocks.length > 0 && 
+                                quotaStatus.remaining >= Math.min(10, stocks.length) &&
+                                timeSinceLastRefresh > this.autoRefreshIntervalMs;
+            
+            if (shouldRefresh) {
+                console.log('🔄 Smart auto-refresh triggered');
+                this.handleRefreshAll();
+            }
+            
+            this.updateMarketStatus();
+            this.showQuotaStatus(); // Update quota display regularly
+        }, this.autoRefreshIntervalMs);
+
+        console.log(`📱 Smart auto-refresh enabled (every ${this.autoRefreshIntervalMs / 60000} minutes, quota-aware)`);
+    }
+
+    /**
+     * NEW: Load/save last full refresh timestamp
+     */
+    loadLastFullRefresh() {
+        try {
+            return parseInt(localStorage.getItem('last_full_refresh') || '0');
+        } catch {
+            return 0;
+        }
+    }
+
+    saveLastFullRefresh() {
+        try {
+            const now = Date.now();
+            localStorage.setItem('last_full_refresh', now.toString());
+            this.lastFullRefresh = now;
+        } catch (error) {
+            console.error('Failed to save last refresh time:', error);
+        }
+    }
+
+    // ALL OTHER METHODS REMAIN THE SAME (no changes needed)
+    // handleRemoveStock, handleClearAllData, handleUpdateTargetPrice, 
+    // handleExport, handleImport, showStorageInfo, renderStocks, etc.
 
     /**
      * Handle removing a stock
@@ -444,7 +625,7 @@ class StockTrackerApp {
                 
                 // Optionally refresh all imported stocks
                 if (confirm('Refresh prices for all stocks?')) {
-                    this.handleRefreshAll();
+                    this.handleRefreshAllWithQuotaCheck();
                 }
             } else {
                 this.showMessage('Failed to import data - invalid format', 'error');
@@ -716,31 +897,6 @@ class StockTrackerApp {
     }
 
     /**
-     * Start auto-refresh during market hours
-     */
-    startAutoRefresh() {
-        if (this.refreshInterval) {
-            clearInterval(this.refreshInterval);
-        }
-
-        this.refreshInterval = setInterval(() => {
-            const status = this.api.getMarketStatus();
-            const stocks = this.storage.getAllStocks();
-            
-            // Only auto-refresh if market is open and we have stocks
-            if (status.isOpen && stocks.length > 0) {
-                console.log('Auto-refreshing stock prices...');
-                this.handleRefreshAll();
-            }
-            
-            // Update market status regardless
-            this.updateMarketStatus();
-        }, this.autoRefreshIntervalMs);
-
-        console.log(`Auto-refresh enabled (every ${this.autoRefreshIntervalMs / 60000} minutes)`);
-    }
-
-    /**
      * Stop auto-refresh
      */
     stopAutoRefresh() {
@@ -830,6 +986,7 @@ class StockTrackerApp {
             storage: this.storage.getStats(),
             quota: this.storage.getStorageQuota(),
             api: this.api.getCacheStats(),
+            apiQuota: this.api.getQuotaStatus(), // NEW
             autoRefresh: {
                 enabled: !!this.refreshInterval,
                 interval: this.autoRefreshIntervalMs / 60000 + ' minutes'
@@ -865,5 +1022,27 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Expose app stats to console for debugging
     window.getAppStats = () => window.app.getAppStats();
-    console.log('App stats available via getAppStats()');
+    console.log('📊 App stats available via getAppStats()');
+    
+    // NEW: Add test button for development (remove in production)
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        const testBtn = document.createElement('button');
+        testBtn.textContent = '🧪 Test Single Stock';
+        testBtn.style.cssText = 'position: fixed; top: 10px; left: 10px; z-index: 1001; padding: 8px; background: orange; color: white; border: none; border-radius: 4px; font-size: 12px;';
+        testBtn.onclick = async () => {
+            console.log('🧪 Testing single stock...');
+            console.log('Quota before:', window.stockAPI.getQuotaStatus());
+            
+            const result = await window.stockAPI.fetchStockPrice('AAPL');
+            console.log('Result:', result);
+            console.log('Quota after:', window.stockAPI.getQuotaStatus());
+            
+            // Test cache
+            console.log('🔄 Testing cache...');
+            const cachedResult = await window.stockAPI.fetchStockPrice('AAPL');
+            console.log('Cached result (should show "Using cached data"):', cachedResult);
+            console.log('Cache stats:', window.stockAPI.getCacheStats());
+        };
+        document.body.appendChild(testBtn);
+    }
 });
