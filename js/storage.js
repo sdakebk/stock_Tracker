@@ -1,10 +1,7 @@
 /**
- * Data Storage Management for Stock Tracker
- * Handles persistent storage of stock data and user preferences using localStorage
+ * Firebase Storage Management for Stock Tracker
+ * Handles persistent storage with proper user authentication
  */
-
-// Firebase Storage Management for Stock Tracker
-// Handles persistent storage of stock data using Firebase Firestore
 
 // Firebase config
 const firebaseConfig = {
@@ -30,27 +27,258 @@ class StockStorage {
     this.db = firebase.firestore();
     this.auth = firebase.auth();
     this.userId = null;
+    this.user = null;
     this.stocks = [];
     this.settings = this.getDefaultSettings();
     this.isInitialized = false;
+    this.authStateListeners = [];
     this.init();
   }
 
   async init() {
     try {
-      // Sign in anonymously
-      const result = await this.auth.signInAnonymously();
-      this.userId = result.user.uid;
-      await this.loadStocks();
-      await this.loadSettings();
-      this.isInitialized = true;
-      console.log('🔥 Firebase initialized and user signed in:', this.userId);
+      // Set up auth state listener
+      this.auth.onAuthStateChanged((user) => {
+        if (user) {
+          this.userId = user.uid;
+          this.user = user;
+          this.onUserSignedIn();
+        } else {
+          this.userId = null;
+          this.user = null;
+          this.onUserSignedOut();
+        }
+        // Notify listeners
+        this.authStateListeners.forEach(listener => listener(user));
+      });
+      
+      console.log('🔥 Firebase initialized and auth listener set up');
     } catch (error) {
       console.error('❌ Firebase initialization failed:', error);
     }
   }
 
+  // Authentication State Management
+  onAuthStateChanged(callback) {
+    this.authStateListeners.push(callback);
+    // Call immediately with current user
+    callback(this.user);
+  }
+
+  async onUserSignedIn() {
+    try {
+      await this.loadStocks();
+      await this.loadSettings();
+      this.isInitialized = true;
+      console.log('✅ User signed in and data loaded:', this.userId);
+    } catch (error) {
+      console.error('❌ Error loading user data:', error);
+    }
+  }
+
+  onUserSignedOut() {
+    this.stocks = [];
+    this.settings = this.getDefaultSettings();
+    this.isInitialized = false;
+    console.log('👋 User signed out and data cleared');
+  }
+
+  // Authentication Methods
+  async signInWithEmail(email, password) {
+    try {
+      const result = await this.auth.signInWithEmailAndPassword(email, password);
+      return { success: true, user: result.user };
+    } catch (error) {
+      console.error('❌ Sign in failed:', error);
+      return { success: false, error: this.getAuthErrorMessage(error) };
+    }
+  }
+
+  async signUpWithEmail(email, password, displayName = null) {
+    try {
+      const result = await this.auth.createUserWithEmailAndPassword(email, password);
+      
+      // Update display name if provided
+      if (displayName) {
+        await result.user.updateProfile({ displayName });
+      }
+      
+      // Create user profile document
+      await this.createUserProfile(result.user);
+      
+      return { success: true, user: result.user };
+    } catch (error) {
+      console.error('❌ Sign up failed:', error);
+      return { success: false, error: this.getAuthErrorMessage(error) };
+    }
+  }
+
+  async signInWithGoogle() {
+    try {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      const result = await this.auth.signInWithPopup(provider);
+      
+      // Create user profile if first time
+      await this.createUserProfile(result.user);
+      
+      return { success: true, user: result.user };
+    } catch (error) {
+      console.error('❌ Google sign in failed:', error);
+      return { success: false, error: this.getAuthErrorMessage(error) };
+    }
+  }
+
+  async signOut() {
+    try {
+      await this.auth.signOut();
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Sign out failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async resetPassword(email) {
+    try {
+      await this.auth.sendPasswordResetEmail(email);
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Password reset failed:', error);
+      return { success: false, error: this.getAuthErrorMessage(error) };
+    }
+  }
+
+  async updateProfile(displayName, photoURL = null) {
+    try {
+      if (!this.user) throw new Error('No user signed in');
+      
+      const updates = { displayName };
+      if (photoURL) updates.photoURL = photoURL;
+      
+      await this.user.updateProfile(updates);
+      await this.updateUserProfile({ displayName, photoURL });
+      
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Profile update failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async deleteAccount() {
+    try {
+      if (!this.user) throw new Error('No user signed in');
+      
+      // Delete all user data first
+      await this.clearStorage();
+      
+      // Delete user profile
+      await this.db.doc(`users/${this.userId}`).delete();
+      
+      // Delete the user account
+      await this.user.delete();
+      
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Account deletion failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // User Profile Management
+  async createUserProfile(user) {
+    try {
+      const userRef = this.db.doc(`users/${user.uid}`);
+      const userDoc = await userRef.get();
+      
+      if (!userDoc.exists) {
+        await userRef.set({
+          displayName: user.displayName || null,
+          email: user.email,
+          photoURL: user.photoURL || null,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          lastSignIn: firebase.firestore.FieldValue.serverTimestamp(),
+          provider: user.providerData[0]?.providerId || 'unknown'
+        });
+        console.log('👤 User profile created');
+      } else {
+        // Update last sign in
+        await userRef.update({
+          lastSignIn: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      }
+    } catch (error) {
+      console.error('❌ Error creating user profile:', error);
+    }
+  }
+
+  async updateUserProfile(data) {
+    try {
+      if (!this.userId) return;
+      
+      const userRef = this.db.doc(`users/${this.userId}`);
+      await userRef.update({
+        ...data,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    } catch (error) {
+      console.error('❌ Error updating user profile:', error);
+    }
+  }
+
+  async getUserProfile() {
+    try {
+      if (!this.userId) return null;
+      
+      const userRef = this.db.doc(`users/${this.userId}`);
+      const doc = await userRef.get();
+      
+      return doc.exists ? doc.data() : null;
+    } catch (error) {
+      console.error('❌ Error getting user profile:', error);
+      return null;
+    }
+  }
+
+  // Helper Methods
+  getAuthErrorMessage(error) {
+    switch (error.code) {
+      case 'auth/user-not-found':
+        return 'No account found with this email address.';
+      case 'auth/wrong-password':
+        return 'Incorrect password.';
+      case 'auth/email-already-in-use':
+        return 'An account with this email already exists.';
+      case 'auth/weak-password':
+        return 'Password should be at least 6 characters.';
+      case 'auth/invalid-email':
+        return 'Please enter a valid email address.';
+      case 'auth/too-many-requests':
+        return 'Too many failed attempts. Please try again later.';
+      case 'auth/network-request-failed':
+        return 'Network error. Please check your connection.';
+      default:
+        return error.message || 'An error occurred during authentication.';
+    }
+  }
+
+  isSignedIn() {
+    return !!this.user;
+  }
+
+  getCurrentUser() {
+    return this.user;
+  }
+
+  requireAuth() {
+    if (!this.isSignedIn()) {
+      throw new Error('Authentication required');
+    }
+  }
+
+  // Data Storage Methods (with auth checks)
   getUserDocPath(collection) {
+    this.requireAuth();
     return `users/${this.userId}/${collection}`;
   }
 
@@ -99,17 +327,18 @@ class StockStorage {
   }
 
   async saveStocks(stocks) {
-    if (!this.userId) return;
+    this.requireAuth();
     try {
       this.stocks = stocks;
-      // Use batch write for better performance
       const batch = this.db.batch();
       const stocksRef = this.db.collection(this.getUserDocPath('stocks'));
+      
       // Delete existing stocks first
       const existingSnapshot = await stocksRef.get();
       existingSnapshot.forEach(doc => {
         batch.delete(doc.ref);
       });
+      
       // Add new stocks
       stocks.forEach(stock => {
         const docRef = stocksRef.doc(stock.id || this.generateId());
@@ -124,6 +353,7 @@ class StockStorage {
           updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
       });
+      
       await batch.commit();
       console.log(`🔥 Saved ${stocks.length} stocks to Firebase`);
     } catch (error) {
@@ -132,7 +362,7 @@ class StockStorage {
   }
 
   async saveSettings(settings) {
-    if (!this.userId) return;
+    this.requireAuth();
     try {
       this.settings = { ...this.settings, ...settings };
       const settingsRef = this.db.doc(`${this.getUserDocPath('settings')}/user_settings`);
@@ -147,13 +377,13 @@ class StockStorage {
   }
 
   async addStock(stock) {
-    if (!this.userId) return false;
+    this.requireAuth();
     try {
-      // Check if stock already exists
       await this.loadStocks();
       if (this.stocks.find(s => s.symbol === stock.symbol)) {
         throw new Error('Stock already exists');
       }
+      
       const newStock = {
         id: this.generateId(),
         symbol: stock.symbol.toUpperCase(),
@@ -166,6 +396,7 @@ class StockStorage {
         error: null,
         dateAdded: new Date().toISOString()
       };
+      
       this.stocks.push(newStock);
       await this.saveStocks(this.stocks);
       return true;
@@ -176,7 +407,7 @@ class StockStorage {
   }
 
   async removeStock(symbol) {
-    if (!this.userId) return false;
+    this.requireAuth();
     try {
       await this.loadStocks();
       const initialLength = this.stocks.length;
@@ -194,18 +425,20 @@ class StockStorage {
   }
 
   async updateStock(symbol, data) {
-    if (!this.userId) return false;
+    this.requireAuth();
     try {
       await this.loadStocks();
       const stockIndex = this.stocks.findIndex(s => s.symbol === symbol);
       if (stockIndex === -1) {
         return false;
       }
+      
       this.stocks[stockIndex] = {
         ...this.stocks[stockIndex],
         ...data,
         lastUpdated: new Date().toISOString()
       };
+      
       await this.saveStocks(this.stocks);
       return true;
     } catch (error) {
@@ -219,17 +452,19 @@ class StockStorage {
   }
 
   async getAllStocks() {
+    this.requireAuth();
     await this.loadStocks();
     return [...this.stocks];
   }
 
   async getStock(symbol) {
+    this.requireAuth();
     await this.loadStocks();
     return this.stocks.find(s => s.symbol === symbol) || null;
   }
 
   async clearAllStocks() {
-    if (!this.userId) return false;
+    this.requireAuth();
     try {
       this.stocks = [];
       await this.saveStocks(this.stocks);
@@ -242,7 +477,7 @@ class StockStorage {
   }
 
   async clearStorage() {
-    if (!this.userId) return;
+    this.requireAuth();
     try {
       // Delete all stocks
       const stocksRef = this.db.collection(this.getUserDocPath('stocks'));
@@ -250,9 +485,11 @@ class StockStorage {
       const batch = this.db.batch();
       snapshot.forEach(doc => batch.delete(doc.ref));
       await batch.commit();
+      
       // Delete settings
       const settingsRef = this.db.doc(`${this.getUserDocPath('settings')}/user_settings`);
       await settingsRef.delete();
+      
       this.stocks = [];
       this.settings = this.getDefaultSettings();
       console.log('Firebase storage cleared');
@@ -262,6 +499,7 @@ class StockStorage {
   }
 
   async exportData() {
+    this.requireAuth();
     try {
       await this.loadStocks();
       await this.loadSettings();
@@ -270,7 +508,7 @@ class StockStorage {
         settings: this.settings,
         exportDate: new Date().toISOString(),
         version: '2.0',
-        appName: 'Stock Tracker Pro - Firebase'
+        appName: 'Stock Tracker Pro - Firebase Auth'
       };
       return JSON.stringify(exportData, null, 2);
     } catch (error) {
@@ -280,18 +518,23 @@ class StockStorage {
   }
 
   async importData(jsonData, merge = false) {
+    this.requireAuth();
     try {
       const data = JSON.parse(jsonData);
       if (!data.stocks || !Array.isArray(data.stocks)) {
         throw new Error('Invalid data format - missing stocks array');
       }
+      
       const validStocks = data.stocks.filter(stock => {
         return stock.symbol && typeof stock.symbol === 'string';
       });
+      
       if (validStocks.length === 0) {
         throw new Error('No valid stocks found in import data');
       }
+      
       await this.loadStocks();
+      
       if (merge) {
         const existingSymbols = this.stocks.map(s => s.symbol);
         const newStocks = validStocks.filter(s => !existingSymbols.includes(s.symbol));
@@ -301,6 +544,7 @@ class StockStorage {
         this.stocks = validStocks;
         console.log(`Replaced all stocks with ${validStocks.length} imported stocks`);
       }
+      
       this.stocks = this.stocks.map(stock => ({
         id: stock.id || this.generateId(),
         symbol: stock.symbol.toUpperCase(),
@@ -313,10 +557,12 @@ class StockStorage {
         error: null,
         dateAdded: stock.dateAdded || new Date().toISOString()
       }));
+      
       if (data.settings && typeof data.settings === 'object') {
         this.settings = { ...this.getDefaultSettings(), ...data.settings };
         await this.saveSettings(this.settings);
       }
+      
       await this.saveStocks(this.stocks);
       return true;
     } catch (error) {
@@ -330,9 +576,11 @@ class StockStorage {
   }
 
   async getStats() {
+    this.requireAuth();
     await this.loadStocks();
     const now = new Date();
     const oneDayAgo = new Date(now - 24 * 60 * 60 * 1000);
+    
     return {
       totalStocks: this.stocks.length,
       stocksWithTargets: this.stocks.filter(s => s.targetPrice).length,
@@ -344,19 +592,19 @@ class StockStorage {
         new Date(Math.min(...this.stocks.map(s => new Date(s.dateAdded)))).toLocaleDateString() : null,
       newestStock: this.stocks.length > 0 ?
         new Date(Math.max(...this.stocks.map(s => new Date(s.dateAdded)))).toLocaleDateString() : null,
-      storageType: 'Firebase',
+      storageType: 'Firebase with Auth',
       userId: this.userId,
+      userEmail: this.user?.email || 'Unknown',
       lastExport: this.settings.lastExport || 'Never'
     };
   }
 
   async getStorageQuota() {
-    // Firestore has generous free tier, so just return a static message
     return {
-      type: 'Firebase',
+      type: 'Firebase with Authentication',
       used: 'Calculating...',
       available: 'Generous free tier',
-      note: 'Firebase provides much larger storage capacity'
+      note: 'Firebase provides secure, per-user storage with authentication'
     };
   }
 }

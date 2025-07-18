@@ -1051,5 +1051,54 @@ document.addEventListener('DOMContentLoaded', async () => {
             };
             document.body.appendChild(testBtn);
         }
+
+        // --- AUTH UI LOGIC ---
+        const authModal = document.getElementById('authModal');
+        const googleSignInBtn = document.getElementById('googleSignInBtn');
+        const authError = document.getElementById('authError');
+        const userInfo = document.getElementById('userInfo');
+        const storage = window.app.storage;
+
+        function showAuthModal() {
+          authModal.style.display = 'flex';
+          authError.textContent = '';
+        }
+        function hideAuthModal() {
+          authModal.style.display = 'none';
+          authError.textContent = '';
+        }
+        function updateUserInfo(user) {
+          if (user) {
+            userInfo.innerHTML = `
+              <span style="margin-right:10px;">👤 ${user.displayName || user.email}</span>
+              <button id="logoutBtn" style="padding:6px 16px; background:#dc3545; color:#fff; border:none; border-radius:6px; font-size:0.95em; cursor:pointer;">Log out</button>
+            `;
+            document.getElementById('logoutBtn').onclick = async () => {
+              await storage.signOut();
+            };
+          } else {
+            userInfo.innerHTML = '';
+          }
+        }
+        // Listen for auth state changes
+        storage.onAuthStateChanged(user => {
+          if (user) {
+            hideAuthModal();
+            updateUserInfo(user);
+          } else {
+            showAuthModal();
+            updateUserInfo(null);
+          }
+        });
+        // Google sign-in button
+        googleSignInBtn.onclick = async () => {
+          googleSignInBtn.disabled = true;
+          authError.textContent = '';
+          const result = await storage.signInWithGoogle();
+          if (!result.success) {
+            authError.textContent = result.error || 'Google sign-in failed.';
+          }
+          googleSignInBtn.disabled = false;
+        };
     }, 1000);
 });
